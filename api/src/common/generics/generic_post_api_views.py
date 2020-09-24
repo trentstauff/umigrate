@@ -23,14 +23,6 @@ class GenericPostListCreate(ListCreateAPIView):
     ]
     filter_backends = [DjangoFilterBackend, SearchFilter]
 
-    def create(self, request, *args, **kwargs):
-        if isinstance(request.data, QueryDict):
-            request.data._mutable = True
-        request.data['creator'] = request.user.id
-
-        return ListCreateAPIView.create(self, request, *args, **kwargs)
-
-
 # HTTP GET: Returns a generic resource
 # HTTP PUT: Updates a generic resource
 # HTTP PATCH: Partially updates a generic resource
@@ -88,50 +80,47 @@ class GenericCommentRetrieveUpdateDestroy(GenericPostRetrieveUpdateDestroy):
         return GenericPostRetrieveUpdateDestroy.update(self, request, *args, **kwargs)
 
 
+# HTTP GET: Returns true or false if a user is a member of a related field on a model
 # HTTP POST: Adds or removes a user from a related field on a model
 class GenericUserExtension(APIView):
-    # Override required for field_string; it should be a string for the field in the request
-    field_string = None
+    # Override required for response_string; it should be a string for the field in the response
+    response_string = None
     # Override required for field_func; it should be a related field for a model instance
     field_func = None
     permission_classes = [
         IsAuthenticated,
     ]
-    tag = None
 
-    def post(self, request, *args, **kwargs):
-        error_response = self.validate_data(request.data)
-        if error_response != {}:
-            return Response(error_response, status=status.HTTP_400_BAD_REQUEST)
-
-        add_user = request.data[self.field_string]
-        obj_id = request.data['id']
-
+    def get(self, request, *args, **kwargs):
         try:
-            if add_user:
-                self.field_func(obj_id=obj_id).add(request.user.id)
+            if self.field_func(obj_id=kwargs['id']).filter(id=request.user.id):
+                return Response({self.response_string: True})
 
-            else:
-                self.field_func(obj_id=obj_id).remove(request.user.id)
-
-            return Response({self.field_string: add_user, 'id': obj_id})
+            return Response({self.response_string: False})
 
         except ObjectDoesNotExist:
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-    def validate_data(self, data):
-        response = {}
+    def post(self, request, *args, **kwargs):
+        try:
+            add_user = request.data[self.response_string]
+            assert (isinstance(add_user, bool))
 
-        if self.field_string not in data.keys():
-            response.update({self.field_string: ['This field is required']})
+            if add_user:
+                self.field_func(obj_id=kwargs['id']).add(request.user.id)
 
-        elif not isinstance(data[self.field_string], bool):
-            response.update({self.field_string: ['Must be a bool']})
+            else:
+                self.field_func(obj_id=kwargs['id']).remove(request.user.id)
 
-        if 'id' not in data.keys():
-            response.update({'id': ['This field is required']})
+            return Response({self.response_string: add_user})
 
-        elif not isinstance(data['id'], int):
-            response.update({'id': ['Must be a positive int']})
+        except KeyError:
+            return Response({self.response_string: ['This field may not be blank.']},
+                            status=status.HTTP_400_BAD_REQUEST)
 
-        return response
+        except AssertionError:
+            return Response({self.response_string: ['This field must be have a boolean value.']},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        except ObjectDoesNotExist:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)

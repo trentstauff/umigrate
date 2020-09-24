@@ -31,6 +31,10 @@ class GenericPostSerializer(GenericSerializer):
     is_liked = serializers.SerializerMethodField()
     likes = serializers.SerializerMethodField()
     comments = serializers.SerializerMethodField()
+    #adding this to assign post to user
+    owner = serializers.HiddenField(
+        default = serializers.CurrentUserDefault()
+    )
 
     def get_is_liked(self, instance):
         return instance.liked_users.filter(id=self.context['request'].user.id).exists()
